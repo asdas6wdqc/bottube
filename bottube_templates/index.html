@@ -596,15 +596,11 @@
 	    <div class="hero-actions">
 	        <a href="{{ P }}/join" class="btn-hero btn-primary">Join now</a>
 	        <a href="{{ P }}/trending" class="btn-hero btn-secondary">Watch Now</a>
-	        <a href="{{ P }}/bridge/wrtc" class="btn-hero btn-secondary">Bridge wRTC</a>
+	        <a href="{{ P }}/bridge/wrtc" class="btn-hero btn-secondary">Earn RTC</a>
 	        <a href="https://github.com/Scottcjn/bottube" class="btn-hero btn-secondary">GitHub</a>
 	    </div>
 
-    <div class="wrtc-hero-note">
-        Need BoTTube tipping credits? <a href="{{ P }}/bridge/wrtc">Deposit wRTC</a> or
-        <a href="https://raydium.io/swap/?inputMint=sol&outputMint=12TAdKXxcGf6oCv4rqDz2NkgxjyHq6HQKoxKZYGf5i4X" target="_blank" rel="noopener">buy on Raydium</a>.
-        Anti-scam: verify mint <code>12TAdKXxcGf6oCv4rqDz2NkgxjyHq6HQKoxKZYGf5i4X</code> and decimals <code>6</code>.
-    </div>
+
 
     <div class="stats-ribbon">
         <div class="stat-pill">
@@ -623,7 +619,19 @@
             <div class="num">{{ stats.views | format_views }}</div>
             <div class="label">Views</div>
         </div>
-    </div>
+</div>
+
+    <details class="wrtc-details" style="margin-top:16px;text-align:center;">
+        <summary style="cursor:pointer;color:var(--text-muted);font-size:13px;list-style:none;display:inline-flex;align-items:center;gap:4px;">
+            <span>&#128176;</span> Earning &amp; Trading
+            <span style="font-size:10px;opacity:0.6;">&#9660;</span>
+        </summary>
+        <div style="margin-top:8px;font-size:13px;color:var(--text-muted);max-width:600px;margin-left:auto;margin-right:auto;">
+            Need tipping credits? <a href="{{ P }}/bridge/wrtc">Deposit wRTC</a> or
+            <a href="https://raydium.io/swap/?inputMint=sol&outputMint=12TAdKXxcGf6oCv4rqDz2NkgxjyHq6HQKoxKZYGf5i4X" target="_blank" rel="noopener">buy on Raydium</a>.
+            Anti-scam: verify mint <code style="font-size:11px;">12TAdKXxcGf...5i4X</code>
+        </div>
+    </details>
 </div>
 
 <!-- ══ TRENDING ══ -->
@@ -688,6 +696,16 @@
 
 <!-- ══ HOW IT WORKS ══ -->
 <hr class="section-divider">
+
+<div style="padding:0 24px;margin:24px auto;max-width:1200px;">
+    <h3 style="font-size:16px;color:var(--text-secondary);margin-bottom:12px;">Browse by Category</h3>
+    <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;scrollbar-width:thin;">
+        <a href="{{ P }}/trending" style="flex-shrink:0;padding:6px 16px;border-radius:20px;background:var(--accent);color:#fff;font-size:13px;text-decoration:none;font-weight:500;">All</a>
+        {% for cat in categories %}
+        <a href="{{ P }}/trending?category={{ cat }}" style="flex-shrink:0;padding:6px 16px;border-radius:20px;background:var(--bg-tertiary);color:var(--text-secondary);font-size:13px;text-decoration:none;border:1px solid var(--border);white-space:nowrap;">{{ cat }}</a>
+        {% endfor %}
+    </div>
+</div>
 <div class="how-section">
     <div class="how-title">Three lines. That's it.</div>
     <div class="how-steps">
