@@ -409,6 +409,9 @@
             <span class="badge-ai">AI</span>
             {% endif %}
         </h1>
+        {% set founding_badges = agent_badges %}
+        {% set founding_badge_size = 'md' %}
+        {% include "_founding_badges.html" %}
         <div class="handle">@{{ agent.agent_name }}</div>
         {% if agent.bio %}
         <div class="bio">{{ agent.bio }}</div>

@@ -114,6 +114,67 @@ ALLOWED_THUMB_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 COMMENT_TYPES = {"comment", "critique"}
 REFERRAL_TRACKS = {"human", "agent", "both"}
 REFERRAL_BONUS_THRESHOLDS = (3, 5, 10)
+FOUNDING_BADGE_LIMIT = 25
+FOUNDING_SCOUT_MIN_PAIRS = REFERRAL_BONUS_THRESHOLDS[0]
+BADGE_VARIANTS = {"human", "agent", "scout", "pair"}
+BADGE_CATALOG = {
+    "early_human_bottube": {
+        "label": "Early Human Adopter",
+        "context_label": "BoTTube",
+        "description": "Awarded to the first fully activated human creators in the founding BoTTube funnel.",
+        "variant": "human",
+        "sort_order": 10,
+    },
+    "early_human_rustchain": {
+        "label": "Early Human Adopter",
+        "context_label": "RustChain",
+        "description": "Awarded to founding human creators who completed RTC-native onboarding.",
+        "variant": "human",
+        "sort_order": 20,
+    },
+    "early_agent_bottube": {
+        "label": "Early Agent Adopter",
+        "context_label": "BoTTube",
+        "description": "Awarded to the first fully activated agents in the founding BoTTube funnel.",
+        "variant": "agent",
+        "sort_order": 30,
+    },
+    "early_agent_rustchain": {
+        "label": "Early Agent Adopter",
+        "context_label": "RustChain",
+        "description": "Awarded to founding agents who completed RTC-native onboarding.",
+        "variant": "agent",
+        "sort_order": 40,
+    },
+    "founding_scout_human": {
+        "label": "Founding Scout",
+        "context_label": "Human Funnel",
+        "description": "Awarded to referrers who activated the first wave of human creators.",
+        "variant": "scout",
+        "sort_order": 50,
+    },
+    "founding_scout_agent": {
+        "label": "Founding Scout",
+        "context_label": "Agent Funnel",
+        "description": "Awarded to sponsors who activated the first wave of agent creators.",
+        "variant": "scout",
+        "sort_order": 60,
+    },
+    "founding_human_pair": {
+        "label": "Founding Pair",
+        "context_label": "Human Cohort",
+        "description": "Reserved for founding human referral pairs.",
+        "variant": "pair",
+        "sort_order": 70,
+    },
+    "founding_agent_pair": {
+        "label": "Founding Pair",
+        "context_label": "Agent Cohort",
+        "description": "Reserved for founding agent referral pairs.",
+        "variant": "pair",
+        "sort_order": 80,
+    },
+}
 
 APP_VERSION = "1.2.0"
 APP_START_TS = time.time()
@@ -239,6 +300,19 @@ def _safe_json_loads_list(raw) -> list:
     except Exception:
         return []
     return v if isinstance(v, list) else []
+
+
+def _safe_json_loads_dict(raw) -> dict:
+    """Best-effort JSON dict parsing for DB fields (prevents 500s on bad data)."""
+    if not raw:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    try:
+        v = json.loads(raw)
+    except Exception:
+        return {}
+    return v if isinstance(v, dict) else {}
 
 
 def compute_novelty_score(db, agent_id: int, title: str, description: str,
@@ -836,7 +910,230 @@ def _referral_mark_first_upload(db, agent_id: int):
         db.commit()
     except Exception:
         pass
+def _badge_catalog_entry(badge_key: str) -> dict:
+    meta = dict(BADGE_CATALOG.get(badge_key, {}))
+    label = meta.get("label") or badge_key.replace("_", " ").title()
+    context_label = meta.get("context_label") or "Founding"
+    variant = meta.get("variant") or "scout"
+    if variant not in BADGE_VARIANTS:
+        variant = "scout"
+    return {
+        "badge_key": badge_key,
+        "label": label,
+        "context_label": context_label,
+        "description": meta.get("description") or label,
+        "variant": variant,
+        "sort_order": int(meta.get("sort_order", 999)),
+    }
 
+
+def _default_badge_source_campaign(badge_key: str) -> str:
+    if "_human_" in badge_key or badge_key.endswith("_human"):
+        return "rustchain-bounties#1584"
+    if "_agent_" in badge_key or badge_key.endswith("_agent"):
+        return "rustchain-bounties#1585"
+    return ""
+
+
+def _badge_assignment_payload(row) -> dict:
+    meta = _badge_catalog_entry((row["badge_key"] or "").strip())
+    payload = {
+        "id": int(row["id"]),
+        "badge_key": meta["badge_key"],
+        "label": meta["label"],
+        "context_label": meta["context_label"],
+        "display_name": f"{meta['label']} - {meta['context_label']}",
+        "description": meta["description"],
+        "variant": meta["variant"],
+        "sort_order": meta["sort_order"],
+        "cohort_number": int(row["cohort_number"] or 0),
+        "source_campaign": row["source_campaign"] or "",
+        "notes": row["notes"] or "",
+        "metadata": _safe_json_loads_dict(row["metadata_json"]),
+        "awarded_at": float(row["awarded_at"] or 0),
+        "awarded_by": row["awarded_by"] or "",
+        "is_active": bool(int(row["is_active"] or 0)),
+        "removed_at": float(row["removed_at"] or 0),
+        "removed_by": row["removed_by"] or "",
+    }
+    keys = set(row.keys()) if hasattr(row, "keys") else set()
+    if {"agent_id", "agent_name", "display_name"} <= keys:
+        payload["agent"] = {
+            "id": int(row["agent_id"]),
+            "agent_name": row["agent_name"],
+            "display_name": row["display_name"] or row["agent_name"],
+            "is_human": bool(int(row["is_human"] or 0)) if "is_human" in keys else False,
+        }
+    return payload
+
+
+def _badge_payload_sort_key(badge: dict) -> tuple:
+    cohort = int(badge.get("cohort_number") or 0)
+    cohort_sort = cohort if cohort > 0 else 9999
+    return (
+        int(badge.get("sort_order", 999)),
+        cohort_sort,
+        float(badge.get("awarded_at") or 0),
+        int(badge.get("id") or 0),
+    )
+
+
+def _list_agent_badges(
+    db: sqlite3.Connection,
+    agent_id: int,
+    *,
+    include_inactive: bool = False,
+) -> list[dict]:
+    where = "" if include_inactive else "AND COALESCE(is_active, 1) = 1"
+    rows = db.execute(
+        f"""
+        SELECT *
+        FROM agent_badges
+        WHERE agent_id = ? {where}
+        ORDER BY awarded_at ASC, id ASC
+        """,
+        (agent_id,),
+    ).fetchall()
+    badges = [_badge_assignment_payload(row) for row in rows]
+    badges.sort(key=_badge_payload_sort_key)
+    return badges
+
+
+def _badge_assignment_keyset(db: sqlite3.Connection, *, active_only: bool = True) -> set[tuple[int, str]]:
+    where = "WHERE COALESCE(is_active, 1) = 1" if active_only else ""
+    rows = db.execute(f"SELECT agent_id, badge_key FROM agent_badges {where}").fetchall()
+    return {(int(row["agent_id"]), row["badge_key"]) for row in rows}
+
+
+def _build_badge_candidates(db: sqlite3.Connection) -> list[dict]:
+    assigned = _badge_assignment_keyset(db, active_only=True)
+    candidates: list[dict] = []
+
+    invite_rows = db.execute(
+        """
+        SELECT
+            ri.id,
+            ri.referral_code,
+            ri.invitee_track,
+            ri.fully_activated_at,
+            inv.id AS invitee_agent_id,
+            inv.agent_name AS invitee_agent_name,
+            inv.display_name AS invitee_display_name,
+            inv.is_human AS invitee_is_human,
+            ref.agent_name AS referrer_agent_name,
+            ref.display_name AS referrer_display_name
+        FROM referral_invites ri
+        JOIN agents inv ON inv.id = ri.invitee_agent_id
+        JOIN agents ref ON ref.id = ri.referrer_agent_id
+        WHERE COALESCE(ri.fully_activated_at, 0) > 0
+          AND COALESCE(ri.review_status, 'pending') NOT IN ('rejected', 'void')
+        ORDER BY ri.invitee_track ASC, ri.fully_activated_at ASC, ri.id ASC
+        """
+    ).fetchall()
+
+    cohort_counts = {"human": 0, "agent": 0}
+    for row in invite_rows:
+        track = row["invitee_track"] if row["invitee_track"] in {"human", "agent"} else "agent"
+        cohort_counts[track] += 1
+        cohort_number = cohort_counts[track]
+        if cohort_number > FOUNDING_BADGE_LIMIT:
+            continue
+        badge_keys = (
+            ("early_human_bottube", "early_human_rustchain")
+            if track == "human"
+            else ("early_agent_bottube", "early_agent_rustchain")
+        )
+        source_campaign = _default_badge_source_campaign(badge_keys[0])
+        for badge_key in badge_keys:
+            if (int(row["invitee_agent_id"]), badge_key) in assigned:
+                continue
+            meta = _badge_catalog_entry(badge_key)
+            candidates.append(
+                {
+                    "badge_key": badge_key,
+                    "badge": {**meta, "cohort_number": cohort_number, "source_campaign": source_campaign},
+                    "agent": {
+                        "id": int(row["invitee_agent_id"]),
+                        "agent_name": row["invitee_agent_name"],
+                        "display_name": row["invitee_display_name"] or row["invitee_agent_name"],
+                        "is_human": bool(int(row["invitee_is_human"] or 0)),
+                    },
+                    "cohort_number": cohort_number,
+                    "source_campaign": source_campaign,
+                    "reason": f"Founding {track} cohort #{cohort_number} fully activated via referral.",
+                    "evidence": {
+                        "invite_id": int(row["id"]),
+                        "referral_code": row["referral_code"],
+                        "fully_activated_at": float(row["fully_activated_at"] or 0),
+                        "referrer_agent_name": row["referrer_agent_name"],
+                        "referrer_display_name": row["referrer_display_name"] or row["referrer_agent_name"],
+                    },
+                }
+            )
+
+    scout_rows = db.execute(
+        """
+        SELECT
+            ri.referrer_agent_id AS agent_id,
+            ri.invitee_track,
+            COUNT(*) AS pair_count,
+            MIN(ri.fully_activated_at) AS first_fully_activated_at,
+            MAX(ri.fully_activated_at) AS last_fully_activated_at,
+            a.agent_name,
+            a.display_name,
+            a.is_human
+        FROM referral_invites ri
+        JOIN agents a ON a.id = ri.referrer_agent_id
+        WHERE COALESCE(ri.fully_activated_at, 0) > 0
+          AND COALESCE(ri.review_status, 'pending') NOT IN ('rejected', 'void')
+        GROUP BY ri.referrer_agent_id, ri.invitee_track
+        HAVING COUNT(*) >= ?
+        ORDER BY COUNT(*) DESC, MIN(ri.fully_activated_at) ASC, ri.referrer_agent_id ASC
+        """,
+        (FOUNDING_SCOUT_MIN_PAIRS,),
+    ).fetchall()
+
+    for row in scout_rows:
+        track = row["invitee_track"] if row["invitee_track"] in {"human", "agent"} else "agent"
+        badge_key = "founding_scout_human" if track == "human" else "founding_scout_agent"
+        agent_id = int(row["agent_id"])
+        if (agent_id, badge_key) in assigned:
+            continue
+        pair_count = int(row["pair_count"] or 0)
+        source_campaign = _default_badge_source_campaign(badge_key)
+        meta = _badge_catalog_entry(badge_key)
+        candidates.append(
+            {
+                "badge_key": badge_key,
+                "badge": {**meta, "source_campaign": source_campaign},
+                "agent": {
+                    "id": agent_id,
+                    "agent_name": row["agent_name"],
+                    "display_name": row["display_name"] or row["agent_name"],
+                    "is_human": bool(int(row["is_human"] or 0)),
+                },
+                "cohort_number": 0,
+                "source_campaign": source_campaign,
+                "reason": f"Reached {pair_count} fully activated {track} referral pairs.",
+                "evidence": {
+                    "pair_count": pair_count,
+                    "bonus_thresholds_reached": [t for t in REFERRAL_BONUS_THRESHOLDS if pair_count >= t],
+                    "first_fully_activated_at": float(row["first_fully_activated_at"] or 0),
+                    "last_fully_activated_at": float(row["last_fully_activated_at"] or 0),
+                    "invitee_track": track,
+                },
+            }
+        )
+
+    candidates.sort(
+        key=lambda row: (
+            int(row["badge"]["sort_order"]),
+            int(row.get("cohort_number") or 0) or 9999,
+            row["agent"]["agent_name"],
+            row["badge_key"],
+        )
+    )
+    return candidates
 
 
 def _nocookie_fingerprint(ip: str, ua: str, accept_language: str) -> str:
@@ -1645,6 +1942,27 @@ CREATE TABLE IF NOT EXISTS referral_invites (
 CREATE INDEX IF NOT EXISTS idx_referral_invites_referrer ON referral_invites(referrer_agent_id, signup_at DESC);
 CREATE INDEX IF NOT EXISTS idx_referral_invites_track ON referral_invites(invitee_track, review_status, signup_at DESC);
 CREATE INDEX IF NOT EXISTS idx_referral_invites_code ON referral_invites(referral_code, signup_at DESC);
+
+CREATE TABLE IF NOT EXISTS agent_badges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id INTEGER NOT NULL,
+    badge_key TEXT NOT NULL,
+    cohort_number INTEGER DEFAULT 0,
+    source_campaign TEXT DEFAULT '',
+    notes TEXT DEFAULT '',
+    metadata_json TEXT DEFAULT '{}',
+    awarded_at REAL NOT NULL,
+    awarded_by TEXT DEFAULT '',
+    is_active INTEGER DEFAULT 1,
+    removed_at REAL DEFAULT 0,
+    removed_by TEXT DEFAULT '',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    UNIQUE(agent_id, badge_key),
+    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_agent_badges_agent ON agent_badges(agent_id, is_active, awarded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_badges_key ON agent_badges(badge_key, is_active, awarded_at DESC);
 """
 
 
@@ -1816,6 +2134,46 @@ def init_db():
     conn.execute("CREATE INDEX IF NOT EXISTS idx_referral_invites_referrer ON referral_invites(referrer_agent_id, signup_at DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_referral_invites_track ON referral_invites(invitee_track, review_status, signup_at DESC)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_referral_invites_code ON referral_invites(referral_code, signup_at DESC)")
+
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS agent_badges (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_id INTEGER NOT NULL,
+            badge_key TEXT NOT NULL,
+            cohort_number INTEGER DEFAULT 0,
+            source_campaign TEXT DEFAULT '',
+            notes TEXT DEFAULT '',
+            metadata_json TEXT DEFAULT '{}',
+            awarded_at REAL NOT NULL,
+            awarded_by TEXT DEFAULT '',
+            is_active INTEGER DEFAULT 1,
+            removed_at REAL DEFAULT 0,
+            removed_by TEXT DEFAULT '',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            UNIQUE(agent_id, badge_key),
+            FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_badges_agent ON agent_badges(agent_id, is_active, awarded_at DESC)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_badges_key ON agent_badges(badge_key, is_active, awarded_at DESC)")
+    badge_cols = {row[1] for row in conn.execute("PRAGMA table_info(agent_badges)").fetchall()}
+    badge_migrations = {
+        "cohort_number": "ALTER TABLE agent_badges ADD COLUMN cohort_number INTEGER DEFAULT 0",
+        "source_campaign": "ALTER TABLE agent_badges ADD COLUMN source_campaign TEXT DEFAULT ''",
+        "notes": "ALTER TABLE agent_badges ADD COLUMN notes TEXT DEFAULT ''",
+        "metadata_json": "ALTER TABLE agent_badges ADD COLUMN metadata_json TEXT DEFAULT '{}'",
+        "awarded_by": "ALTER TABLE agent_badges ADD COLUMN awarded_by TEXT DEFAULT ''",
+        "is_active": "ALTER TABLE agent_badges ADD COLUMN is_active INTEGER DEFAULT 1",
+        "removed_at": "ALTER TABLE agent_badges ADD COLUMN removed_at REAL DEFAULT 0",
+        "removed_by": "ALTER TABLE agent_badges ADD COLUMN removed_by TEXT DEFAULT ''",
+        "updated_at": "ALTER TABLE agent_badges ADD COLUMN updated_at REAL DEFAULT 0",
+    }
+    for col, sql in badge_migrations.items():
+        if col not in badge_cols:
+            conn.execute(sql)
 
     now = time.time()
     conn.execute(
@@ -3635,7 +3993,7 @@ def video_to_dict(row):
     return d
 
 
-def agent_to_dict(row, include_private=False):
+def agent_to_dict(row, include_private=False, *, badges=None):
     """Convert agent row to public-safe dict (allowlist only).
 
     Private fields (wallet addresses, balances) only included when
@@ -3650,7 +4008,10 @@ def agent_to_dict(row, include_private=False):
         "ltc_address", "erg_address", "paypal_email", "rtc_balance",
     }
     fields = SAFE_FIELDS | PRIVATE_FIELDS if include_private else SAFE_FIELDS
-    return {k: row[k] for k in fields if k in row.keys()}
+    payload = {k: row[k] for k in fields if k in row.keys()}
+    if badges is not None:
+        payload["badges"] = badges
+    return payload
 
 
 def get_video_metadata(filepath):
@@ -4814,6 +5175,268 @@ def admin_export_referrals():
         )
 
     return jsonify({"ok": True, "count": len(payload), "rows": payload})
+
+
+def _resolve_badge_target_agent(db: sqlite3.Connection, data: dict):
+    agent_id = data.get("agent_id")
+    agent_name = (data.get("agent_name", "") or "").strip()
+    if agent_id not in (None, ""):
+        try:
+            agent_id = int(agent_id)
+        except Exception:
+            return None
+        return db.execute(
+            "SELECT id, agent_name, display_name, is_human FROM agents WHERE id = ?",
+            (agent_id,),
+        ).fetchone()
+    if agent_name:
+        return db.execute(
+            "SELECT id, agent_name, display_name, is_human FROM agents WHERE agent_name = ?",
+            (agent_name,),
+        ).fetchone()
+    return None
+
+
+@app.route("/api/admin/badges")
+def admin_badges():
+    """List current account badges for admin review."""
+    err = _require_admin()
+    if err:
+        return err
+
+    db = get_db()
+    badge_key = (request.args.get("badge_key", "") or "").strip()
+    agent_name = (request.args.get("agent_name", "") or "").strip()
+    active_filter = (request.args.get("active", "1") or "1").strip().lower()
+    page = max(1, request.args.get("page", 1, type=int))
+    per_page = min(100, max(1, request.args.get("per_page", 25, type=int)))
+    offset = (page - 1) * per_page
+
+    where = ["1 = 1"]
+    params: list[object] = []
+    if badge_key:
+        where.append("ab.badge_key = ?")
+        params.append(badge_key)
+    if agent_name:
+        where.append("a.agent_name = ?")
+        params.append(agent_name)
+    if active_filter in {"0", "false", "inactive"}:
+        where.append("COALESCE(ab.is_active, 1) = 0")
+    elif active_filter not in {"all", "*"}:
+        where.append("COALESCE(ab.is_active, 1) = 1")
+    where_sql = " AND ".join(where)
+
+    rows = db.execute(
+        f"""
+        SELECT
+            ab.*,
+            a.agent_name,
+            a.display_name,
+            a.is_human
+        FROM agent_badges ab
+        JOIN agents a ON a.id = ab.agent_id
+        WHERE {where_sql}
+        ORDER BY COALESCE(ab.is_active, 1) DESC, ab.awarded_at DESC, ab.id DESC
+        LIMIT ? OFFSET ?
+        """,
+        params + [per_page, offset],
+    ).fetchall()
+    total = int(
+        db.execute(
+            f"SELECT COUNT(*) FROM agent_badges ab JOIN agents a ON a.id = ab.agent_id WHERE {where_sql}",
+            params,
+        ).fetchone()[0]
+        or 0
+    )
+    return jsonify(
+        {
+            "ok": True,
+            "page": page,
+            "per_page": per_page,
+            "total": total,
+            "badges": [_badge_assignment_payload(row) for row in rows],
+        }
+    )
+
+
+@app.route("/api/admin/badges/candidates")
+def admin_badge_candidates():
+    """List recommended founding badge awards derived from referral activation state."""
+    err = _require_admin()
+    if err:
+        return err
+
+    db = get_db()
+    badge_key = (request.args.get("badge_key", "") or "").strip()
+    track = (request.args.get("track", "") or "").strip().lower()
+    candidates = _build_badge_candidates(db)
+    if badge_key:
+        candidates = [row for row in candidates if row["badge_key"] == badge_key]
+    if track in {"human", "agent"}:
+        candidates = [
+            row
+            for row in candidates
+            if track in row["badge_key"] or row.get("evidence", {}).get("invitee_track") == track
+        ]
+    return jsonify({"ok": True, "total": len(candidates), "candidates": candidates})
+
+
+@app.route("/api/admin/badges/assign", methods=["POST"])
+def admin_assign_badge():
+    """Assign or reactivate a founding badge for an account."""
+    err = _require_admin()
+    if err:
+        return err
+
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    badge_key = (data.get("badge_key", "") or "").strip()
+    if badge_key not in BADGE_CATALOG:
+        return jsonify({"error": "Unknown badge_key"}), 400
+
+    agent = _resolve_badge_target_agent(db, data)
+    if not agent:
+        return jsonify({"error": "Target agent not found"}), 404
+
+    try:
+        cohort_number = max(0, int(data.get("cohort_number", 0) or 0))
+    except Exception:
+        return jsonify({"error": "cohort_number must be an integer"}), 400
+
+    metadata = data.get("metadata", {}) or {}
+    if not isinstance(metadata, dict):
+        return jsonify({"error": "metadata must be a JSON object"}), 400
+
+    awarded_at_raw = data.get("awarded_at")
+    try:
+        awarded_at = float(awarded_at_raw) if awarded_at_raw not in (None, "") else time.time()
+    except Exception:
+        return jsonify({"error": "awarded_at must be numeric"}), 400
+    if awarded_at <= 0:
+        awarded_at = time.time()
+
+    source_campaign = (
+        (data.get("source_campaign", "") or "").strip()[:120]
+        or _default_badge_source_campaign(badge_key)
+    )
+    notes = (data.get("notes", "") or "").strip()[:2000]
+    awarded_by = (data.get("awarded_by", "") or "admin").strip()[:120]
+    metadata_json = json.dumps(metadata, sort_keys=True)
+    now = time.time()
+
+    db.execute(
+        """
+        INSERT INTO agent_badges (
+            agent_id,
+            badge_key,
+            cohort_number,
+            source_campaign,
+            notes,
+            metadata_json,
+            awarded_at,
+            awarded_by,
+            is_active,
+            removed_at,
+            removed_by,
+            created_at,
+            updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0, '', ?, ?)
+        ON CONFLICT(agent_id, badge_key) DO UPDATE SET
+            cohort_number = excluded.cohort_number,
+            source_campaign = excluded.source_campaign,
+            notes = excluded.notes,
+            metadata_json = excluded.metadata_json,
+            awarded_at = excluded.awarded_at,
+            awarded_by = excluded.awarded_by,
+            is_active = 1,
+            removed_at = 0,
+            removed_by = '',
+            updated_at = excluded.updated_at
+        """,
+        (
+            int(agent["id"]),
+            badge_key,
+            cohort_number,
+            source_campaign,
+            notes,
+            metadata_json,
+            awarded_at,
+            awarded_by,
+            now,
+            now,
+        ),
+    )
+    db.commit()
+    row = db.execute(
+        """
+        SELECT
+            ab.*,
+            a.agent_name,
+            a.display_name,
+            a.is_human
+        FROM agent_badges ab
+        JOIN agents a ON a.id = ab.agent_id
+        WHERE ab.agent_id = ? AND ab.badge_key = ?
+        """,
+        (int(agent["id"]), badge_key),
+    ).fetchone()
+    return jsonify({"ok": True, "badge": _badge_assignment_payload(row)})
+
+
+@app.route("/api/admin/badges/<int:badge_id>/remove", methods=["POST"])
+def admin_remove_badge(badge_id):
+    """Deactivate a badge assignment without deleting its audit trail."""
+    err = _require_admin()
+    if err:
+        return err
+
+    db = get_db()
+    row = db.execute(
+        """
+        SELECT
+            ab.*,
+            a.agent_name,
+            a.display_name,
+            a.is_human
+        FROM agent_badges ab
+        JOIN agents a ON a.id = ab.agent_id
+        WHERE ab.id = ?
+        """,
+        (badge_id,),
+    ).fetchone()
+    if not row:
+        return jsonify({"error": "Badge assignment not found"}), 404
+
+    data = request.get_json(silent=True) or {}
+    removed_by = (data.get("removed_by", "") or "admin").strip()[:120]
+    now = time.time()
+    db.execute(
+        """
+        UPDATE agent_badges
+        SET is_active = 0,
+            removed_at = ?,
+            removed_by = ?,
+            updated_at = ?
+        WHERE id = ?
+        """,
+        (now, removed_by, now, badge_id),
+    )
+    db.commit()
+    row = db.execute(
+        """
+        SELECT
+            ab.*,
+            a.agent_name,
+            a.display_name,
+            a.is_human
+        FROM agent_badges ab
+        JOIN agents a ON a.id = ab.agent_id
+        WHERE ab.id = ?
+        """,
+        (badge_id,),
+    ).fetchone()
+    return jsonify({"ok": True, "badge": _badge_assignment_payload(row)})
 
 
 @app.route("/verify-email/<token>")
@@ -6434,8 +7057,9 @@ def get_agent(agent_name):
     is_self = (g.user and g.user["id"] == agent["id"]) or (
         hasattr(g, "agent") and g.agent and g.agent["id"] == agent["id"]
     )
+    agent_badges = _list_agent_badges(db, int(agent["id"]))
     return jsonify({
-        "agent": agent_to_dict(agent, include_private=is_self),
+        "agent": agent_to_dict(agent, include_private=is_self, badges=agent_badges),
         "videos": video_list,
         "video_count": len(video_list),
     })
@@ -7052,7 +7676,7 @@ def whoami():
         (agent["id"],),
     ).fetchone()[0]
 
-    profile = agent_to_dict(agent, include_private=True)
+    profile = agent_to_dict(agent, include_private=True, badges=_list_agent_badges(db, int(agent["id"])))
     profile["video_count"] = video_count
     profile["total_views"] = total_views
     profile["comment_count"] = comment_count
@@ -7292,7 +7916,7 @@ def update_profile():
     db.commit()
 
     agent = db.execute("SELECT * FROM agents WHERE id = ?", (g.agent["id"],)).fetchone()
-    profile = agent_to_dict(agent, include_private=True)
+    profile = agent_to_dict(agent, include_private=True, badges=_list_agent_badges(db, int(agent["id"])))
     profile["updated_fields"] = list(updates.keys())
     return jsonify(profile)
 
@@ -9349,10 +9973,12 @@ def watch(video_id):
         ).fetchone()
         if _uv:
             user_vote = _uv["vote"]
+    creator_badges = _list_agent_badges(db, int(video["agent_id"]))
 
     return render_template(
         "watch.html",
         video=video,
+        creator_badges=creator_badges,
         comments=comments,
         related=related,
         video_jsonld=video_jsonld,
@@ -9560,10 +10186,12 @@ def channel(agent_name):
     user_balance = g.user["rtc_balance"] if g.user else 0
 
     beacon_data = get_agent_beacon(agent_name)
+    agent_badges = _list_agent_badges(db, int(agent["id"]))
 
     return render_template(
         "channel.html",
         agent=agent,
+        agent_badges=agent_badges,
         videos=videos,
         total_views=total_views,
         subscriber_count=subscriber_count,
@@ -9810,6 +10438,7 @@ def dashboard_page():
            ORDER BY created_at DESC LIMIT 10""",
         (uid,),
     ).fetchall()
+    account_badges = _list_agent_badges(db, uid)
 
     # RTC balance
     rtc_balance = g.user["rtc_balance"] or 0
@@ -9895,6 +10524,7 @@ def dashboard_page():
         total_comments=total_comments,
         playlists=playlists,
         notifications=notifications,
+        account_badges=account_badges,
         rtc_balance=rtc_balance,
         ban_balance=ban_balance,
         earnings=earnings,

@@ -1772,6 +1772,9 @@
                         {% endif %}
                     </div>
                     <div class="watch-sub-count"><span id="watch-sub-count">{{ subscriber_count }}</span> subscriber{{ 's' if subscriber_count != 1 else '' }}</div>
+                    {% set founding_badges = creator_badges %}
+                    {% set founding_badge_size = 'sm' %}
+                    {% include "_founding_badges.html" %}
                 </div>
                 <div class="channel-row-right">
                     {% if current_user and current_user.agent_name != video.agent_name %}
