@@ -12249,9 +12249,12 @@ app.register_blueprint(news_bp)
 # ---------------------------------------------------------------------------
 # Syndication Run Tracking & Reporting (Issue #312)
 # ---------------------------------------------------------------------------
-from syndication_routes import syndication_bp, init_syndication
-init_syndication(str(DB_PATH))
-app.register_blueprint(syndication_bp)
+try:
+    from syndication_routes import syndication_bp, init_syndication
+    init_syndication(str(DB_PATH))
+    app.register_blueprint(syndication_bp)
+except Exception as e:
+    print(f"[WARN] Syndication routes not loaded: {e}")
 
 # ---------------------------------------------------------------------------
 # Push Notification Subscriptions (FCM / Web Push)
