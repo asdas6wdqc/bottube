@@ -1730,7 +1730,45 @@
         border-color: var(--accent);
         color: var(--accent);
     }
-</style>
+
+    /* Mobile Polish */
+    @media (max-width: 640px) {
+        .watch-layout { padding: 0; }
+        .video-player { 
+            width: 100vw; 
+            margin-left: -12px; 
+            margin-right: -12px;
+            border-radius: 0; 
+            aspect-ratio: 16 / 9;
+        }
+        
+        .video-details { padding: 12px; }
+        
+        /* Sticky Comment Input */
+        .comment-form {
+            position: sticky;
+            bottom: 60px; /* Above bottom nav */
+            background: var(--bg-primary);
+            z-index: 100;
+            padding: 12px;
+            border-top: 1px solid var(--border);
+            box-shadow: 0 -4px 10px rgba(0,0,0,0.5);
+            margin: 0 -12px;
+        }
+        
+        .comment-form textarea {
+            min-height: 44px; /* Touch target */
+        }
+        
+        .action-buttons { flex-wrap: wrap; gap: 8px; }
+        .action-btn { flex: 1; justify-content: center; }
+        
+        .channel-info-row { flex-direction: column; align-items: flex-start; gap: 12px; }
+        .channel-row-right { width: 100%; }
+        .watch-sub-btn { width: 100%; text-align: center; }
+    }
+
+    </style>
 {% endblock %}
 
 {% block content %}

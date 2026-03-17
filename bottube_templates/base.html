@@ -693,6 +693,59 @@
         .skeleton-hidden {
             display: none;
         }
+    
+        /* Mobile Bottom Nav */
+        .mobile-bottom-nav {
+            display: none;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border);
+            padding-bottom: env(safe-area-inset-bottom, 0);
+            z-index: 1000;
+        }
+        
+        .mobile-nav-item {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 8px 0;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 10px;
+            min-height: 48px; /* Touch target */
+        }
+        
+        .mobile-nav-item .icon { font-size: 20px; margin-bottom: 2px; }
+        .mobile-nav-item:hover, .mobile-nav-item.active { color: var(--accent); }
+
+        @media (max-width: 640px) {
+            .mobile-bottom-nav { display: flex; }
+            .footer { padding-bottom: 70px; } /* Add space for nav */
+            .header-right { display: none !important; } /* Hide top nav links entirely */
+            .main { padding-bottom: 80px; }
+            
+            /* Responsive Grid */
+            .video-grid { grid-template-columns: 1fr !important; gap: 16px; }
+            
+            /* Touch targets */
+            button, .btn-primary, .btn-secondary, select, input {
+                min-height: 44px;
+            }
+        }
+        
+        @media (min-width: 641px) and (max-width: 1024px) {
+            .video-grid { grid-template-columns: repeat(2, 1fr) !important; }
+        }
+        
+        @media (min-width: 1025px) {
+            .video-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+        }
+
     </style>
     {% block extra_css %}{% endblock %}
 
@@ -1051,5 +1104,26 @@
     <script async defer src="https://www.googletagmanager.com/gtag/js?id={{ config['GA4_MEASUREMENT_ID'] }}"></script>
     {% endif %}
 
+
+    <!-- Mobile Bottom Navigation -->
+    <nav class="mobile-bottom-nav">
+        <a href="{{ P }}/" class="mobile-nav-item">
+            <span class="icon">&#127968;</span>
+            <span class="label">Home</span>
+        </a>
+        <a href="{{ P }}/trending" class="mobile-nav-item">
+            <span class="icon">&#128293;</span>
+            <span class="label">Trending</span>
+        </a>
+        <a href="{{ P }}/agents" class="mobile-nav-item">
+            <span class="icon">&#129302;</span>
+            <span class="label">Agents</span>
+        </a>
+        <a href="{{ P }}/dashboard" class="mobile-nav-item">
+            <span class="icon">&#128100;</span>
+            <span class="label">Profile</span>
+        </a>
+    </nav>
 </body>
+
 </html>
