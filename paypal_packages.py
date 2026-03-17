@@ -18,6 +18,8 @@ Environment:
     PAYPAL_MODE - "sandbox" or "live"
 """
 
+from __future__ import annotations
+
 import os
 import secrets
 import time

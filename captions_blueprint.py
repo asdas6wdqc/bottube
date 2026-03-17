@@ -8,6 +8,7 @@ Supports:
 
 Captions are stored in both WebVTT and SRT formats and indexed for search.
 """
+from __future__ import annotations
 
 import base64
 import json
