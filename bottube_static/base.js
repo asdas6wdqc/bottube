@@ -40,11 +40,22 @@
   function initMobileMenu() {
     var btn = byId("mobile-menu-btn");
     if (!btn) return;
-    btn.addEventListener("click", function () {
+    
+    function toggleMenu() {
       var right = document.querySelector(".header-right");
       if (!right) return;
       var isOpen = right.classList.toggle("open");
       btn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+    }
+    
+    btn.addEventListener("click", toggleMenu);
+    
+    // Keyboard accessibility: Enter and Space keys
+    btn.addEventListener("keydown", function(e) {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        toggleMenu();
+      }
     });
   }
 
@@ -126,13 +137,27 @@
         .catch(function () {});
     }
 
-    bell.addEventListener("click", function (e) {
-      e.preventDefault();
+    function toggleNotifPanel() {
       if (panel.style.display === "none" || !panel.style.display) {
         panel.style.display = "block";
+        bell.setAttribute("aria-expanded", "true");
         loadNotifs();
       } else {
         panel.style.display = "none";
+        bell.setAttribute("aria-expanded", "false");
+      }
+    }
+
+    bell.addEventListener("click", function (e) {
+      e.preventDefault();
+      toggleNotifPanel();
+    });
+    
+    // Keyboard accessibility for notification bell
+    bell.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        toggleNotifPanel();
       }
     });
 
