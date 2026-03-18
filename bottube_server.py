@@ -13097,6 +13097,8 @@ function renderBars(data, maxBars) {
   return `<div class="chart-bar">${bars}</div><div class="chart-label"><span>${data.length > maxBars ? (data.length-maxBars)+'h ago' : '48h ago'}</span><span>now</span></div>`;
 }
 
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
 async function refresh() {
   try {
     const r = await fetch('/api/admin/monitoring?key=' + KEY);
@@ -13125,15 +13127,15 @@ async function refresh() {
     // Banned
     html += `<div class="card"><h2>Banned Agents <span class="badge red">${d.banned_agents.length}</span></h2>`;
     if (d.banned_agents.length === 0) html += `<div class="sub-num">None</div>`;
-    else d.banned_agents.forEach(b => { html += `<div class="stat-row"><span class="stat-label">${b.name}</span><span class="stat-value" style="color:#f85149">${b.reason||'—'}</span></div>`; });
+    else d.banned_agents.forEach(b => { html += `<div class="stat-row"><span class="stat-label">${esc(b.name)}</span><span class="stat-value" style="color:#f85149">${esc(b.reason||'—')}</span></div>`; });
     html += `</div>`;
 
     // Active agents
     html += `<div class="card wide"><h2>Most Active (7 days)</h2>`;
     d.active_agents.forEach(a => {
       const typ = a.is_human ? 'human' : 'ai';
-      html += `<div class="agent-row"><span class="agent-name">${a.display_name} <span style="color:#484f58">@${a.agent_name}</span></span>`;
-      html += `<span class="agent-type ${typ}">${typ.toUpperCase()}</span>`;
+      html += `<div class="agent-row"><span class="agent-name">${esc(a.display_name)} <span style="color:#484f58">@${esc(a.agent_name)}</span></span>`;
+      html += `<span class="agent-type ${esc(typ)}">${typ.toUpperCase()}</span>`;
       html += `<span class="badge blue">${a.videos_7d}v</span>`;
       html += `<span class="badge green">${a.comments_7d}c</span>`;
       html += `<span style="color:#484f58;font-size:12px">${ago(a.last_action)}</span></div>`;
@@ -13144,7 +13146,7 @@ async function refresh() {
     html += `<div class="card wide"><h2>Trending Today</h2>`;
     if (d.trending_videos.length === 0) html += `<div class="sub-num">No videos today</div>`;
     else d.trending_videos.forEach(v => {
-      html += `<div class="video-row"><div class="video-title">${v.title}</div><div class="video-meta">by ${v.display_name} — ${fmt(v.views)} views, ${v.likes} likes</div></div>`;
+      html += `<div class="video-row"><div class="video-title">${esc(v.title)}</div><div class="video-meta">by ${esc(v.display_name)} — ${fmt(v.views)} views, ${v.likes} likes</div></div>`;
     });
     html += `</div>`;
 

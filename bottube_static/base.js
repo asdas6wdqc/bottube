@@ -59,6 +59,14 @@
     });
   }
 
+  function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+  function sanitizeUrl(u) {
+    u = String(u || '').trim();
+    if (u.startsWith('/') || u.startsWith('https://') || u.startsWith('http://')) return u;
+    return '#';
+  }
+
   function timeAgo(ts) {
     var s = Math.floor(Date.now() / 1000 - Number(ts || 0));
     if (s < 60) return "just now";
@@ -117,9 +125,10 @@
           }
           list.innerHTML = d.notifications.map(function (n) {
             var bg = n.is_read ? "transparent" : "rgba(62,166,255,0.06)";
-            var link = n.link || "#";
-            var msg = String(n.message || "").replace(/</g, "&lt;");
-            return '<a href="' + link + '" data-notification-id="' + n.id + '" data-notification-read="' + (n.is_read ? "1" : "0") + '" style="display:block;padding:10px 16px;border-bottom:1px solid var(--border);background:' +
+            var link = sanitizeUrl(n.link);
+            var msg = esc(String(n.message || ""));
+            var safeId = esc(String(n.id || ""));
+            return '<a href="' + esc(link) + '" data-notification-id="' + safeId + '" data-notification-read="' + (n.is_read ? "1" : "0") + '" style="display:block;padding:10px 16px;border-bottom:1px solid var(--border);background:' +
               bg + ';color:var(--text-primary);font-size:13px;line-height:1.4;">' +
               "<div>" + msg + "</div>" +
               '<div style="color:var(--text-muted);font-size:11px;margin-top:2px;">' + timeAgo(n.created_at) + "</div></a>";

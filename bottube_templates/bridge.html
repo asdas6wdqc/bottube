@@ -734,6 +734,9 @@ function copyText(text, btn) {
     });
 }
 
+function esc(s) { const d = document.createElement('div'); d.textContent = String(s == null ? '' : s); return d.innerHTML; }
+function sanitizeTxSig(s) { return /^[a-zA-Z0-9]+$/.test(s) ? s : ''; }
+
 // ─── Show result ────────────────────────────────────────────
 function showResult(id, ok, msg) {
     const el = document.getElementById(id);
@@ -818,12 +821,14 @@ async function loadWrtcHistory() {
             html += "<table class='history-table'><tr><th>Type</th><th>Amount</th><th>TX</th><th>Status</th><th>Date</th></tr>";
             for (const d of data.deposits) {
                 const date = new Date(d.created_at * 1000).toLocaleDateString();
-                const txShort = d.tx_signature.slice(0, 12) + "...";
-                html += `<tr><td style="color:var(--green)">Deposit</td><td>${d.amount} wRTC</td><td><a href="https://solscan.io/tx/${d.tx_signature}" target="_blank">${txShort}</a></td><td class="status-${d.status}">${d.status}</td><td>${date}</td></tr>`;
+                const safeTx = sanitizeTxSig(d.tx_signature);
+                const txShort = safeTx.slice(0, 12) + "...";
+                html += `<tr><td style="color:var(--green)">Deposit</td><td>${esc(d.amount)} wRTC</td><td>${safeTx ? `<a href="https://solscan.io/tx/${safeTx}" target="_blank">${txShort}</a>` : '—'}</td><td class="status-${esc(d.status)}">${esc(d.status)}</td><td>${date}</td></tr>`;
             }
             for (const w of data.withdrawals) {
                 const date = new Date(w.created_at * 1000).toLocaleDateString();
-                html += `<tr><td style="color:#e6a817">Withdraw</td><td>${w.amount} wRTC</td><td>${w.tx_signature ? '<a href="https://solscan.io/tx/' + w.tx_signature + '" target="_blank">View</a>' : '—'}</td><td class="status-${w.status}">${w.status}</td><td>${date}</td></tr>`;
+                const safeWTx = w.tx_signature ? sanitizeTxSig(w.tx_signature) : '';
+                html += `<tr><td style="color:#e6a817">Withdraw</td><td>${esc(w.amount)} wRTC</td><td>${safeWTx ? '<a href="https://solscan.io/tx/' + safeWTx + '" target="_blank">View</a>' : '—'}</td><td class="status-${esc(w.status)}">${esc(w.status)}</td><td>${date}</td></tr>`;
             }
             html += "</table>";
         }
@@ -899,11 +904,11 @@ async function loadErgoHistory() {
             html += "<table class='history-table'><tr><th>Type</th><th>ERG</th><th>RTC</th><th>Status</th><th>Date</th></tr>";
             for (const d of (data.deposits || [])) {
                 const date = new Date(d.created_at * 1000).toLocaleDateString();
-                html += `<tr><td style="color:var(--green)">Deposit</td><td>${d.erg_amount || '—'} ERG</td><td>${d.rtc_credited || '—'} RTC</td><td class="status-${d.status}">${d.status}</td><td>${date}</td></tr>`;
+                html += `<tr><td style="color:var(--green)">Deposit</td><td>${esc(d.erg_amount || '—')} ERG</td><td>${esc(d.rtc_credited || '—')} RTC</td><td class="status-${esc(d.status)}">${esc(d.status)}</td><td>${date}</td></tr>`;
             }
             for (const w of (data.withdrawals || [])) {
                 const date = new Date(w.created_at * 1000).toLocaleDateString();
-                html += `<tr><td style="color:#e6a817">Withdraw</td><td>${w.erg_amount || '—'} ERG</td><td>${w.rtc_amount || '—'} RTC</td><td class="status-${w.status}">${w.status}</td><td>${date}</td></tr>`;
+                html += `<tr><td style="color:#e6a817">Withdraw</td><td>${esc(w.erg_amount || '—')} ERG</td><td>${esc(w.rtc_amount || '—')} RTC</td><td class="status-${esc(w.status)}">${esc(w.status)}</td><td>${date}</td></tr>`;
             }
             html += "</table>";
         } else {
