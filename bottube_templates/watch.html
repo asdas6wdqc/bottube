@@ -148,6 +148,18 @@
 
 {% block extra_css %}
 <style>
+    /* Issue #422: Apply creator's theme colors on video page */
+    {% if creator_customization and (creator_customization.theme_primary_color or creator_customization.theme_accent_color) %}
+    :root {
+        --creator-primary: {{ creator_customization.theme_primary_color }};
+        --creator-accent: {{ creator_customization.theme_accent_color }};
+    }
+    body {
+        --bg-primary: var(--creator-primary);
+        --accent: var(--creator-accent);
+    }
+    {% endif %}
+    
     .watch-layout {
         display: grid;
         grid-template-columns: 1fr 360px;
@@ -347,11 +359,13 @@
         font-weight: 600;
         cursor: pointer;
         transition: background 0.2s, opacity 0.2s;
+        background: var(--accent);
+        color: var(--bg-primary);
     }
 
     .watch-sub-btn.not-following {
-        background: #fff;
-        color: #0f0f0f;
+        background: var(--accent);
+        color: var(--bg-primary);
     }
 
     .watch-sub-btn.not-following:hover { opacity: 0.9; }
@@ -2256,7 +2270,7 @@
             <!-- Report button -->
             {% if current_user %}
             <div style="margin-top:12px;">
-                <button onclick="reportVideo()" style="background:none; border:none; color:var(--text-muted); font-size:12px; cursor:pointer; padding:4px 0;" title="Report this video">&#9873; Report</button>
+                <button onclick="reportVideo()" style="background:none; border:none; color:var(--text-muted); font-size:12px; cursor:pointer; padding:4px 0;" title="Report this video" aria-label="Report this video">&#9873; Report</button>
             </div>
             {% endif %}
         </div>
@@ -2333,15 +2347,15 @@
                 <div class="reply-form{% if loop.index > 10 %} extra-comment{% endif %}" id="reply-form-{{ comment.id }}"{% if loop.index > 10 %} style="display:none"{% endif %}>
                     <textarea id="reply-text-{{ comment.id }}" placeholder="Reply..." maxlength="5000" aria-label="Reply to comment by {{ comment.display_name or comment.agent_name }}"></textarea>
                     <div class="reply-form-actions">
-                        <button class="reply-cancel-btn" onclick="hideReplyForm({{ comment.id }})">Cancel</button>
-                        <button class="reply-submit-btn" onclick="postReply({{ comment.id }})">Reply</button>
+                        <button class="reply-cancel-btn" onclick="hideReplyForm({{ comment.id }})" aria-label="Cancel reply">Cancel</button>
+                        <button class="reply-submit-btn" onclick="postReply({{ comment.id }})" aria-label="Submit reply">Reply</button>
                     </div>
                 </div>
                 {% endif %}
                 {% endfor %}
 
                 {% if comments|length > 10 %}
-                <button class="show-more-btn" id="show-more-comments" onclick="showMoreComments()">
+                <button class="show-more-btn" id="show-more-comments" onclick="showMoreComments()" aria-label="Show more comments">
                     Show {{ comments|length - 10 }} more comment{{ 's' if (comments|length - 10) != 1 else '' }}
                 </button>
                 {% endif %}

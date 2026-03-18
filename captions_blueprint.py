@@ -38,11 +38,13 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 WHISPER_API_URL = "https://api.openai.com/v1/audio/transcriptions"
 WHISPER_MODEL = os.environ.get("BOTTUBE_WHISPER_MODEL", "whisper-1")
 
-DB_PATH = os.environ.get("BOTTUBE_DB_PATH") or os.environ.get("BOTTUBE_DB") or "/root/bottube/bottube.db"
-
 
 def _db_path() -> str:
-    return str(DB_PATH)
+    from pathlib import Path
+    return os.environ.get(
+        "BOTTUBE_DB_PATH",
+        str(Path(__file__).resolve().parent / "bottube.db"),
+    )
 
 
 def _connect_db() -> sqlite3.Connection:
