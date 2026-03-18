@@ -113,6 +113,34 @@
             outline: 2px solid var(--accent);
             outline-offset: 2px;
         }
+        
+        /* Enhanced focus states for interactive elements (WCAG 2.4.7) */
+        button:focus-visible,
+        [role="button"]:focus-visible,
+        a:focus-visible,
+        input:focus-visible,
+        select:focus-visible,
+        textarea:focus-visible {
+            outline: 3px solid var(--accent);
+            outline-offset: 2px;
+            box-shadow: 0 0 0 4px rgba(62, 166, 255, 0.3);
+        }
+        
+        /* Mobile menu button focus state */
+        .mobile-menu-btn:focus-visible {
+            outline: 3px solid var(--accent);
+            outline-offset: 2px;
+            background: rgba(62, 166, 255, 0.2);
+            border-radius: 4px;
+        }
+        
+        /* Notification bell focus state */
+        #bell-btn:focus-visible {
+            outline: 3px solid var(--accent);
+            outline-offset: 2px;
+            background: rgba(62, 166, 255, 0.15);
+            border-radius: 4px;
+        }
 
         body {
             background: var(--bg-primary);
@@ -1052,7 +1080,7 @@
             <button type="submit" aria-label="Submit search">{{ _('nav.search') }}</button>
         </form>
 
-        <button class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Menu">&#9776;</button>
+        <button class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Menu" aria-expanded="false">&#9776;</button>
         <div class="header-right">
             <a href="{{ P }}/news" style="color:#ff6b6b;font-weight:600;">News</a>
             <a href="{{ P }}/trending">{{ _('nav.trending') }}</a>
@@ -1069,8 +1097,9 @@
             <a href="{{ P }}/upload">{{ _('nav.upload') }}</a>
             {% if current_user %}
             <div class="notif-wrapper" style="position:relative;">
-                <a href="#" id="bell-btn" style="position:relative;font-size:18px;padding:6px 8px;">
-                    &#128276;<span id="notif-badge" style="display:none;position:absolute;top:2px;right:2px;background:var(--red);color:#fff;font-size:10px;font-weight:700;min-width:16px;height:16px;border-radius:8px;text-align:center;line-height:16px;padding:0 4px;"></span>
+                <a href="#" id="bell-btn" style="position:relative;font-size:18px;padding:6px 8px;" aria-label="Notifications" role="button" aria-haspopup="true" aria-expanded="false">
+                    &#128276;<span id="notif-badge" style="display:none;position:absolute;top:2px;right:2px;background:var(--red);color:#fff;font-size:10px;font-weight:700;min-width:16px;height:16px;border-radius:8px;text-align:center;line-height:16px;padding:0 4px;" aria-label="New notifications" role="status"></span>
+                    <span class="sr-only">{{ _('nav.notifications') }}</span>
                 </a>
                 <div id="notif-panel" style="display:none;position:absolute;right:0;top:42px;width:340px;max-height:400px;overflow-y:auto;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);z-index:200;box-shadow:0 4px 12px rgba(0,0,0,0.5);">
                     <div style="padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
@@ -1340,3 +1369,5 @@
 </body>
 
 </html>
+
+<!-- Mobile Responsive Polish #2160 - Additional touch-friendly improvements -->
