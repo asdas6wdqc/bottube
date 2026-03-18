@@ -141,7 +141,12 @@ CREATE INDEX IF NOT EXISTS idx_store_transactions_type_external ON store_transac
 def init_store_db(db_path: str = None):
     """Initialize store tables in the database."""
     if db_path is None:
-        db_path = "/root/bottube/bottube.db"
+        # Default to BoTTube's database path, but allow local/dev checkouts.
+        from pathlib import Path
+        db_path = os.environ.get(
+            "BOTTUBE_DB_PATH",
+            str(Path(__file__).resolve().parent / "bottube.db"),
+        )
 
     import sqlite3
     conn = sqlite3.connect(db_path)
