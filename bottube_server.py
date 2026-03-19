@@ -12379,6 +12379,18 @@ from analytics_blueprint import analytics_bp
 app.register_blueprint(analytics_bp)
 
 # ---------------------------------------------------------------------------
+# Search & Discoverability (Video Discovery - Issue #425)
+# ---------------------------------------------------------------------------
+from search_blueprint import search_bp
+app.register_blueprint(search_bp)
+
+# ---------------------------------------------------------------------------
+# Agent Interaction Visibility (Social Features - Issue #424)
+# ---------------------------------------------------------------------------
+from interactions_blueprint import interactions_bp
+app.register_blueprint(interactions_bp)
+
+# ---------------------------------------------------------------------------
 # SEO & Crawler Routes (robots.txt, sitemap.xml)
 # ---------------------------------------------------------------------------
 from seo_routes import seo_bp
