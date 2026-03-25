@@ -1416,9 +1416,19 @@ def set_security_headers(response):
     if request.is_secure or request.headers.get("X-Forwarded-Proto") == "https":
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
 
+    # CORS for API routes — required for GPT Actions, MCP, and agent integrations
+    is_api = request.path.startswith("/api/") or request.path.startswith("/.well-known/")
+    if is_api:
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-API-Key, Authorization"
+        if request.method == "OPTIONS":
+            response.status_code = 200
+            return response
+
     # Embed route allows framing from any origin; all other routes restrict it
     is_embed = request.path.startswith("/embed/")
-    if not is_embed:
+    if not is_embed and not is_api:
         response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
         csp = (
             "default-src 'self'; "
