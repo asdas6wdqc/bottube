@@ -40,9 +40,25 @@ video_gen_bp = Blueprint("video_gen", __name__)
 # ---------------------------------------------------------------------------
 COMFYUI_URL = os.environ.get("COMFYUI_URL", "http://100.95.77.124:8188")
 COMFYUI_TIMEOUT = int(os.environ.get("COMFYUI_TIMEOUT", "300"))  # 5 min max
+
+# Free-tier video gen backends (cascade: try each in order)
 HF_API_TOKEN = os.environ.get("HF_API_TOKEN", "")
 HF_VIDEO_MODEL = os.environ.get("HF_VIDEO_MODEL", "ali-vilab/text-to-video-ms-1.7b")
 HF_API_URL = f"https://api-inference.huggingface.co/models/{HF_VIDEO_MODEL}"
+
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_VIDEO_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+
+STABILITY_API_KEY = os.environ.get("STABILITY_API_KEY", "")
+STABILITY_VIDEO_URL = "https://api.stability.ai/v2beta/image-to-video"
+STABILITY_IMG_URL = "https://api.stability.ai/v2beta/stable-image/generate/core"
+
+FAL_API_KEY = os.environ.get("FAL_API_KEY", "")
+FAL_VIDEO_URL = "https://queue.fal.run/fal-ai/fast-svd-lcm"
+
+REPLICATE_API_TOKEN = os.environ.get("REPLICATE_API_TOKEN", "")
+REPLICATE_VIDEO_URL = "https://api.replicate.com/v1/predictions"
+
 PROMPT_MAX_LEN = 500
 MAX_DURATION = 8
 VIDEO_WIDTH = 720
@@ -376,6 +392,258 @@ def _try_huggingface(prompt: str, duration: int, output_path: Path) -> bool:
         return False
 
 
+def _reencode_to_square(input_path: Path, output_path: Path, duration: int) -> bool:
+    """Re-encode any video to 720x720 square with silent audio track."""
+    cmd = [
+        "ffmpeg", "-y", "-i", str(input_path),
+        "-vf", (f"scale={VIDEO_WIDTH}:{VIDEO_HEIGHT}:force_original_aspect_ratio=decrease,"
+                f"pad={VIDEO_WIDTH}:{VIDEO_HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=0x1a1a2e"),
+        "-t", str(duration),
+        "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+        "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-shortest", str(output_path),
+    ]
+    try:
+        subprocess.run(cmd, capture_output=True, timeout=60)
+        input_path.unlink(missing_ok=True)
+        return output_path.exists()
+    except Exception:
+        return False
+
+
+def _try_gemini(prompt: str, duration: int, output_path: Path) -> bool:
+    """Try Google Gemini for image generation, then animate to video (free tier)."""
+    if not GEMINI_API_KEY:
+        return False
+    try:
+        # Gemini 2.0 Flash can generate images; we animate the image into a video
+        payload = json.dumps({
+            "contents": [{
+                "parts": [{"text": f"Generate a vivid, cinematic image for this scene: {prompt}. Style: digital art, 16:9 composition, vibrant colors."}]
+            }],
+            "generationConfig": {
+                "responseModalities": ["image", "text"],
+                "imageSizeOptions": {"width": 1280, "height": 720}
+            }
+        }).encode()
+
+        req = urllib.request.Request(
+            f"{GEMINI_VIDEO_URL}?key={GEMINI_API_KEY}",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+        )
+
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            result = json.loads(resp.read())
+
+        # Extract image from response
+        candidates = result.get("candidates", [])
+        if not candidates:
+            return False
+
+        parts = candidates[0].get("content", {}).get("parts", [])
+        img_data = None
+        for part in parts:
+            if "inlineData" in part:
+                import base64
+                img_data = base64.b64decode(part["inlineData"]["data"])
+                break
+
+        if not img_data:
+            return False
+
+        # Save image and animate it with Ken Burns zoom effect
+        img_path = output_path.with_suffix(".gemini.png")
+        with open(img_path, "wb") as f:
+            f.write(img_data)
+
+        # Ken Burns: slow zoom in over duration with fade
+        cmd = [
+            "ffmpeg", "-y",
+            "-loop", "1", "-i", str(img_path),
+            "-f", "lavfi", "-i", f"anullsrc=channel_layout=stereo:sample_rate=44100",
+            "-vf", (f"scale=1440:1440,zoompan=z='1+0.04*in/{duration}/24'"
+                    f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={duration*24}:s={VIDEO_WIDTH}x{VIDEO_HEIGHT}:fps=24"),
+            "-t", str(duration),
+            "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-shortest",
+            str(output_path),
+        ]
+        subprocess.run(cmd, capture_output=True, timeout=60)
+        img_path.unlink(missing_ok=True)
+        return output_path.exists()
+    except Exception:
+        return False
+
+
+def _try_stability(prompt: str, duration: int, output_path: Path) -> bool:
+    """Try Stability AI: generate image then animate to video (free tier ~25 credits)."""
+    if not STABILITY_API_KEY:
+        return False
+    try:
+        # Step 1: Generate image via Stable Image Core
+        import urllib.parse
+        boundary = "----FormBoundary" + uuid.uuid4().hex[:16]
+        body_parts = []
+        for name, value in [("prompt", prompt), ("output_format", "png"),
+                            ("aspect_ratio", "1:1")]:
+            body_parts.append(f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}")
+        body = "\r\n".join(body_parts) + f"\r\n--{boundary}--\r\n"
+
+        req = urllib.request.Request(
+            STABILITY_IMG_URL,
+            data=body.encode(),
+            headers={
+                "Authorization": f"Bearer {STABILITY_API_KEY}",
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+                "Accept": "image/*",
+            },
+        )
+
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            img_data = resp.read()
+
+        if not img_data or len(img_data) < 1000:
+            return False
+
+        img_path = output_path.with_suffix(".stability.png")
+        with open(img_path, "wb") as f:
+            f.write(img_data)
+
+        # Step 2: Animate with Ken Burns zoom
+        cmd = [
+            "ffmpeg", "-y",
+            "-loop", "1", "-i", str(img_path),
+            "-f", "lavfi", "-i", f"anullsrc=channel_layout=stereo:sample_rate=44100",
+            "-vf", (f"zoompan=z='1+0.03*in/{duration}/24'"
+                    f":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+                    f":d={duration*24}:s={VIDEO_WIDTH}x{VIDEO_HEIGHT}:fps=24"),
+            "-t", str(duration),
+            "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-shortest",
+            str(output_path),
+        ]
+        subprocess.run(cmd, capture_output=True, timeout=60)
+        img_path.unlink(missing_ok=True)
+        return output_path.exists()
+    except Exception:
+        return False
+
+
+def _try_fal(prompt: str, duration: int, output_path: Path) -> bool:
+    """Try fal.ai SVD-LCM for fast video generation (free tier)."""
+    if not FAL_API_KEY:
+        return False
+    try:
+        # fal.ai queue-based: submit then poll
+        payload = json.dumps({
+            "prompt": prompt,
+            "num_frames": min(duration * 8, 64),
+            "fps": 8,
+            "motion_bucket_id": 127,
+        }).encode()
+
+        req = urllib.request.Request(
+            FAL_VIDEO_URL,
+            data=payload,
+            headers={
+                "Authorization": f"Key {FAL_API_KEY}",
+                "Content-Type": "application/json",
+            },
+        )
+
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            result = json.loads(resp.read())
+
+        # Poll for completion
+        request_id = result.get("request_id", "")
+        if not request_id:
+            return False
+
+        status_url = f"https://queue.fal.run/fal-ai/fast-svd-lcm/requests/{request_id}/status"
+        result_url = f"https://queue.fal.run/fal-ai/fast-svd-lcm/requests/{request_id}"
+
+        for _ in range(30):  # Poll up to 150 seconds
+            time.sleep(5)
+            req2 = urllib.request.Request(status_url, headers={"Authorization": f"Key {FAL_API_KEY}"})
+            with urllib.request.urlopen(req2, timeout=10) as resp2:
+                status = json.loads(resp2.read())
+            if status.get("status") == "COMPLETED":
+                break
+
+        # Get result
+        req3 = urllib.request.Request(result_url, headers={"Authorization": f"Key {FAL_API_KEY}"})
+        with urllib.request.urlopen(req3, timeout=30) as resp3:
+            final = json.loads(resp3.read())
+
+        video_url = final.get("video", {}).get("url", "")
+        if not video_url:
+            return False
+
+        # Download and re-encode
+        raw_path = output_path.with_suffix(".fal.mp4")
+        urllib.request.urlretrieve(video_url, str(raw_path))
+        return _reencode_to_square(raw_path, output_path, duration)
+    except Exception:
+        return False
+
+
+def _try_replicate(prompt: str, duration: int, output_path: Path) -> bool:
+    """Try Replicate for video generation (free tier with rate limits)."""
+    if not REPLICATE_API_TOKEN:
+        return False
+    try:
+        payload = json.dumps({
+            "version": "3f0457e4619daac51203dedb472816fd4af51f3149fa7a9e0b5ffcf1b8172438",
+            "input": {
+                "prompt": prompt,
+                "num_frames": min(duration * 8, 64),
+                "fps": 8,
+                "width": 512,
+                "height": 512,
+            }
+        }).encode()
+
+        req = urllib.request.Request(
+            REPLICATE_VIDEO_URL,
+            data=payload,
+            headers={
+                "Authorization": f"Token {REPLICATE_API_TOKEN}",
+                "Content-Type": "application/json",
+            },
+        )
+
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            result = json.loads(resp.read())
+
+        poll_url = result.get("urls", {}).get("get", "")
+        if not poll_url:
+            return False
+
+        # Poll for completion
+        for _ in range(40):  # Up to 200 seconds
+            time.sleep(5)
+            req2 = urllib.request.Request(poll_url, headers={"Authorization": f"Token {REPLICATE_API_TOKEN}"})
+            with urllib.request.urlopen(req2, timeout=10) as resp2:
+                status = json.loads(resp2.read())
+            if status.get("status") == "succeeded":
+                break
+            if status.get("status") == "failed":
+                return False
+
+        output_url = status.get("output", "")
+        if isinstance(output_url, list):
+            output_url = output_url[0] if output_url else ""
+        if not output_url:
+            return False
+
+        raw_path = output_path.with_suffix(".replicate.mp4")
+        urllib.request.urlretrieve(output_url, str(raw_path))
+        return _reencode_to_square(raw_path, output_path, duration)
+    except Exception:
+        return False
+
+
 def _ffmpeg_title_card(prompt: str, duration: int, output_path: Path) -> bool:
     """Create an animated title card MP4 with gradient background and text fade-in."""
     # Wrap long text to ~30 chars per line for readability
@@ -465,11 +733,26 @@ def _generation_worker(job_id: str, agent_id: int, prompt: str,
                 # Conversion failed, fall through to ffmpeg fallback
                 gen_method = "text"
 
-        if not final_path.exists():
-            # Try Hugging Face Inference API (free)
-            hf_result = _try_huggingface(prompt, duration, final_path)
-            if hf_result:
-                gen_method = "huggingface"
+        # Cascade through all free-tier backends
+        free_backends = [
+            ("huggingface", _try_huggingface),
+            ("gemini", _try_gemini),
+            ("stability", _try_stability),
+            ("fal", _try_fal),
+            ("replicate", _try_replicate),
+        ]
+        # Rotate starting backend based on job_id hash for load distribution
+        start_idx = hash(job_id) % len(free_backends)
+        rotated = free_backends[start_idx:] + free_backends[:start_idx]
+
+        for backend_name, backend_fn in rotated:
+            if final_path.exists():
+                break
+            try:
+                if backend_fn(prompt, duration, final_path):
+                    gen_method = backend_name
+            except Exception:
+                pass
 
         if not final_path.exists():
             # FFmpeg title-card fallback (always works)
