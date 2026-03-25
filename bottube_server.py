@@ -12436,6 +12436,12 @@ from agent_discovery import discovery_bp
 app.register_blueprint(discovery_bp)
 
 # ---------------------------------------------------------------------------
+# Video Generation (Text-to-Video API for GPT Actions)
+# ---------------------------------------------------------------------------
+from video_gen_blueprint import video_gen_bp
+app.register_blueprint(video_gen_bp)
+
+# ---------------------------------------------------------------------------
 # GPU Marketplace (Decentralized AI Rendering)
 # ---------------------------------------------------------------------------
 from gpu_marketplace import gpu_bp, init_gpu_db
